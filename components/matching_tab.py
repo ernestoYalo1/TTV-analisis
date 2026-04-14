@@ -13,7 +13,7 @@ from services.bigquery_service import get_active_bots
 def render():
     st.header("Account ↔ Bot Matching")
 
-    col_refresh, col_status = st.columns([1, 3])
+    col_refresh, col_search = st.columns([1, 2])
     with col_refresh:
         if st.button("Refresh from Salesforce & BigQuery", type="primary"):
             _refresh_data()
@@ -23,7 +23,22 @@ def render():
         st.session_state.bots = []
 
     bots = st.session_state.bots
-    bot_ids = ["-- Not mapped --"] + [b["bot_id"] for b in bots]
+    all_bot_ids = [b["bot_id"] for b in bots]
+
+    # Global search filter for bots
+    with col_search:
+        search_term = st.text_input(
+            "Search bots",
+            placeholder="Type to filter bot IDs (e.g. 'pepsico', 'santander')",
+            key="bot_search",
+        )
+
+    if search_term:
+        filtered_bot_ids = [b for b in all_bot_ids if search_term.lower() in b.lower()]
+    else:
+        filtered_bot_ids = all_bot_ids
+
+    bot_options = ["-- Not mapped --"] + filtered_bot_ids
 
     mappings = get_all_mappings()
     if not mappings:
@@ -36,7 +51,15 @@ def render():
     # Stats
     mapped_count = sum(1 for m in mappings if m.get("bot_id"))
     total_count = len(mappings)
-    st.markdown(f"**{mapped_count}** of **{total_count}** accounts mapped")
+
+    if search_term:
+        st.markdown(
+            f"**{mapped_count}** of **{total_count}** accounts mapped  ·  "
+            f"Showing **{len(filtered_bot_ids)}** of {len(all_bot_ids)} bots matching '{search_term}'"
+        )
+    else:
+        st.markdown(f"**{mapped_count}** of **{total_count}** accounts mapped  ·  {len(all_bot_ids)} bots available")
+
     st.divider()
 
     # Show each account with a selectbox for bot_id
@@ -57,15 +80,20 @@ def render():
                     st.caption(f"[Salesforce link]({acct['sf_url']})")
 
             with col_select:
-                # Find current index
-                if current_bot and current_bot in bot_ids:
-                    default_idx = bot_ids.index(current_bot)
+                # If already mapped, show current bot even if not in filtered list
+                if current_bot:
+                    display_options = bot_options if current_bot in bot_options else ["-- Not mapped --", current_bot] + filtered_bot_ids
+                else:
+                    display_options = bot_options
+
+                if current_bot and current_bot in display_options:
+                    default_idx = display_options.index(current_bot)
                 else:
                     default_idx = 0
 
                 selected = st.selectbox(
                     "Bot ID",
-                    bot_ids,
+                    display_options,
                     index=default_idx,
                     key=f"bot_select_{opp_id}",
                     label_visibility="collapsed",
@@ -86,7 +114,7 @@ def render():
 
 
 def _refresh_data():
-    """Pull fresh data from Salesforce and BigQuery, store in SQLite + session."""
+    """Pull fresh data from Salesforce and BigQuery, store in SQLite/Supabase + session."""
     with st.spinner("Querying Salesforce for new customers..."):
         try:
             customers = get_new_customers()
