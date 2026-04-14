@@ -126,6 +126,7 @@ exec /opt/scanning_agent/venv/bin/streamlit run app.py \
     --server.port=8506 \
     --server.address=0.0.0.0 \
     --server.headless=true \
+    --server.baseUrlPath=ttv \
     --browser.gatherUsageStats=false
 STARTUP
 chmod +x /opt/ttv_analysis/start_dashboard.sh" \
@@ -156,5 +157,6 @@ echo ""
 echo "=============================================="
 echo -e "${GREEN}  Deploy complete!${NC}"
 echo ""
-echo "  Dashboard: http://$EXTERNAL_IP:$PORT"
+echo "  Dashboard:  https://yalo.ernestodelae.com/ttv/"
+echo "  Direct IP:  http://$EXTERNAL_IP:$PORT/ttv/"
 echo "=============================================="
