@@ -55,7 +55,7 @@ tar -czf "$TARBALL" \
     --exclude='*.egg-info' \
     --exclude='.env' \
     --exclude='data/*.db' \
-    app.py requirements.txt api_clients config components services data
+    app.py requirements.txt api_clients config components services data scripts
 
 gcloud compute scp "$TARBALL" \
     "$VM:/tmp/ttv_analysis_code.tar.gz" \

@@ -4,17 +4,32 @@ Dashboard Tab — TTV table, metrics, and chart.
 import streamlit as st
 import pandas as pd
 
-from services.ttv_service import compute_ttv_table, compute_summary
+from services.ttv_service import compute_ttv_table, load_cached_ttv_table, compute_summary
+from services import supabase_client as sb
 from config.settings import MILESTONES
 
 
 def render():
     st.header("Time-to-Value Dashboard")
 
-    if st.button("Compute TTV", type="primary"):
-        with st.spinner("Querying BigQuery for milestones... This may take a minute."):
-            ttv_rows = compute_ttv_table()
-            st.session_state.ttv_rows = ttv_rows
+    col_compute, col_cache = st.columns(2)
+    with col_compute:
+        if st.button("Compute TTV (live from BigQuery)", type="primary"):
+            with st.spinner("Querying BigQuery for milestones... This may take a minute."):
+                ttv_rows = compute_ttv_table()
+                st.session_state.ttv_rows = ttv_rows
+                if ttv_rows:
+                    st.success(f"Computed milestones for {len(ttv_rows)} accounts")
+
+    with col_cache:
+        if sb.is_available():
+            if st.button("Load cached results"):
+                cached = load_cached_ttv_table()
+                if cached:
+                    st.session_state.ttv_rows = cached
+                    st.success(f"Loaded {len(cached)} cached accounts")
+                else:
+                    st.warning("No cached data. Click 'Compute TTV' first.")
 
     ttv_rows = st.session_state.get("ttv_rows", [])
 
@@ -74,7 +89,6 @@ def render():
 
     if chart_data:
         chart_df = pd.DataFrame(chart_data)
-        # Pivot for grouped bar chart
         pivot = chart_df.pivot(index="Account", columns="Milestone", values="Days")
         st.bar_chart(pivot)
     else:
