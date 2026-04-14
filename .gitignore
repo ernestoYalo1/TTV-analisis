@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+data/*.db
+data/*.sqlite
+api_clients/_sf_config_env.json
+api_clients/config.json
+*.egg-info/
+dist/
+build/
+.streamlit/secrets.toml
+venv/
+.venv/
