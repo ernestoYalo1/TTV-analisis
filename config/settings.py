@@ -16,8 +16,8 @@ DB_PATH = DATA_DIR / "mappings.db"
 
 # BigQuery
 BQ_PROJECT = "arched-photon-194421"
-BQ_CONVERSATIONS_TABLE = "arched-photon-194421.DWH2.conversation_journeys"
+BQ_CONVERSATIONS_TABLE = "arched-photon-194421.DWH.fct_conversation"
 
 # TTV parameters
-NEW_CUSTOMER_CUTOFF = "2026-01-01"
+NEW_CUSTOMER_CUTOFF = "2025-01-01"
 MILESTONES = [10, 50, 100]

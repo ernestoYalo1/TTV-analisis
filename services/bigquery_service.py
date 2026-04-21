@@ -2,9 +2,12 @@
 BigQuery data extraction for TTV analysis.
 Gets active bots and computes unique-contact milestones.
 """
+import logging
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 CLIENTS_DIR = Path(__file__).resolve().parents[1] / "api_clients"
 sys.path.insert(0, str(CLIENTS_DIR))
@@ -26,27 +29,30 @@ def get_active_bots() -> List[Dict]:
     """
     Return all bot_ids that have had at least one conversation,
     with first/last conversation dates and total unique contacts.
-    Uses conversation_journeys (available from Dec 2025 onward).
+    Uses DWH.fct_conversation (data from 2020 onward).
     """
     client = _get_client()
     query = f"""
         SELECT
             bot_id,
             COUNT(DISTINCT user_id) as unique_contacts,
-            MIN(conversation_started_at_date) as first_conversation_date,
-            MAX(conversation_started_at_date) as last_conversation_date
+            MIN(DATE(fact_date_time_utc)) as first_conversation_date,
+            MAX(DATE(fact_date_time_utc)) as last_conversation_date
         FROM `{BQ_CONVERSATIONS_TABLE}`
         WHERE bot_id IS NOT NULL
-          AND conversation_flow_type = 'inbound'
+          AND LOWER(message_rol) = 'user'
           AND user_id NOT LIKE '%qa_test%'
           AND user_id NOT LIKE '%@yalo.com'
         GROUP BY bot_id
         ORDER BY unique_contacts DESC
     """
+    logger.info("Querying BigQuery for active bots...")
     results = client.query_bigquery(query, as_dataframe=False)
     if not results:
+        logger.warning("BigQuery returned no results for active bots query")
         return []
 
+    logger.info(f"BigQuery returned {len(results)} bots")
     bots = []
     for r in results:
         bots.append({
@@ -79,11 +85,11 @@ def get_milestones(bot_id: str, start_date: str) -> Dict[int, Optional[str]]:
         WITH first_contact AS (
             SELECT
                 user_id,
-                MIN(conversation_started_at_date) as first_contact_date
+                MIN(DATE(fact_date_time_utc)) as first_contact_date
             FROM `{BQ_CONVERSATIONS_TABLE}`
             WHERE bot_id = '{bot_id}'
-              AND conversation_started_at_date >= '{start_date}'
-              AND conversation_flow_type = 'inbound'
+              AND DATE(fact_date_time_utc) >= '{start_date}'
+              AND LOWER(message_rol) = 'user'
               AND user_id NOT LIKE '%qa_test%'
               AND user_id NOT LIKE '%@yalo.com'
             GROUP BY user_id
@@ -125,8 +131,8 @@ def get_total_unique_contacts(bot_id: str, start_date: str) -> int:
         SELECT COUNT(DISTINCT user_id) as total
         FROM `{BQ_CONVERSATIONS_TABLE}`
         WHERE bot_id = '{bot_id}'
-          AND conversation_started_at_date >= '{start_date}'
-          AND conversation_flow_type = 'inbound'
+          AND DATE(fact_date_time_utc) >= '{start_date}'
+          AND LOWER(message_rol) = 'user'
           AND user_id NOT LIKE '%qa_test%'
           AND user_id NOT LIKE '%@yalo.com'
     """

@@ -4,6 +4,8 @@ __pycache__/
 .env
 data/*.db
 data/*.sqlite
+data/*.csv
+.claude/
 api_clients/_sf_config_env.json
 api_clients/config.json
 *.egg-info/

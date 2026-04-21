@@ -12,7 +12,10 @@ Two tabs:
 Run:
     streamlit run app.py --server.port 8504
 """
+import logging
 import streamlit as st
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s: %(message)s")
 
 st.set_page_config(
     page_title="TTV Analysis — Yalo",

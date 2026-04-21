@@ -69,7 +69,59 @@ def get_unmapped() -> List[Dict]:
 # Supabase row conversion
 # ---------------------------------------------------------------------------
 
+def update_opportunity_name(opportunity_id: str, new_name: str):
+    """Sync opportunity_name locally after a successful Salesforce write."""
+    if sb.is_available():
+        sb.update(TABLE, {"opportunity_name": new_name}, "opportunity_id", opportunity_id)
+    else:
+        conn = _get_conn()
+        conn.execute(
+            "UPDATE account_bot_mappings SET opportunity_name = ? WHERE opportunity_id = ?",
+            (new_name, opportunity_id),
+        )
+        conn.commit()
+        conn.close()
+
+
+_DELIVERY_FIELDS = (
+    "tech_assist_start", "tech_assist_end", "pm_start",
+    "go_live_date", "sow_url", "expected_go_live_pm", "expected_go_live_sow",
+    "sow_extraction_confidence", "sow_extraction_source", "sow_extracted_at",
+)
+# Keys added after initial schema — may not exist yet in Supabase. On a
+# PGRST204 ("column does not exist") error we retry with these dropped.
+_OPTIONAL_FIELDS = frozenset({
+    "sow_extraction_confidence", "sow_extraction_source", "sow_extracted_at",
+})
+
+
+def update_delivery_data(opportunity_id: str, data: Dict):
+    """Update delivery process fields for an opportunity."""
+    fields = {k: data[k] for k in _DELIVERY_FIELDS if k in data}
+    if not fields:
+        return
+    if sb.is_available():
+        try:
+            sb.update(TABLE, fields, "opportunity_id", opportunity_id)
+        except Exception as exc:
+            msg = str(exc)
+            if "PGRST204" in msg or "does not exist" in msg:
+                stripped = {k: v for k, v in fields.items() if k not in _OPTIONAL_FIELDS}
+                if stripped and stripped != fields:
+                    sb.update(TABLE, stripped, "opportunity_id", opportunity_id)
+                    return
+            raise
+    else:
+        _sqlite_update_delivery(opportunity_id, fields)
+
+
 def _to_sb_row(acct: Dict) -> Dict:
+    """Convert account dict to Supabase row.
+
+    IMPORTANT: Never include bot_id or mapped_at here — those are only set
+    via save_mapping()/clear_mapping(). Including them with None would
+    overwrite existing mappings on upsert.
+    """
     return {
         "account_name": acct.get("account_name"),
         "account_id": acct.get("account_id"),
@@ -78,7 +130,13 @@ def _to_sb_row(acct: Dict) -> Dict:
         "close_date": acct.get("close_date"),
         "amount": acct.get("amount") or 0,
         "sf_url": acct.get("sf_url"),
-        "bot_id": acct.get("bot_id"),
+        "business_type": acct.get("business_type"),
+        "tech_assist_start": acct.get("tech_assist_start"),
+        "tech_assist_end": acct.get("tech_assist_end"),
+        "pm_start": acct.get("pm_start"),
+        "go_live_date": acct.get("go_live_date"),
+        "sow_url": acct.get("sow_url"),
+        "expected_go_live_pm": acct.get("expected_go_live_pm"),
     }
 
 
@@ -101,9 +159,24 @@ def _get_conn() -> sqlite3.Connection:
             amount REAL,
             sf_url TEXT,
             bot_id TEXT,
-            mapped_at TEXT
+            mapped_at TEXT,
+            tech_assist_start TEXT,
+            tech_assist_end TEXT,
+            pm_start TEXT,
+            go_live_date TEXT,
+            sow_url TEXT,
+            expected_go_live_pm TEXT,
+            expected_go_live_sow TEXT
         )
     """)
+    # Migrate existing tables missing new columns
+    for col in ("tech_assist_start", "tech_assist_end", "pm_start",
+                "go_live_date", "sow_url", "expected_go_live_pm", "expected_go_live_sow",
+                "sow_extraction_confidence", "sow_extraction_source", "sow_extracted_at"):
+        try:
+            conn.execute(f"ALTER TABLE account_bot_mappings ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.commit()
     return conn
 
@@ -178,3 +251,15 @@ def _sqlite_get_unmapped() -> List[Dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def _sqlite_update_delivery(opportunity_id: str, fields: Dict):
+    conn = _get_conn()
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [opportunity_id]
+    conn.execute(
+        f"UPDATE account_bot_mappings SET {set_clause} WHERE opportunity_id = ?",
+        values,
+    )
+    conn.commit()
+    conn.close()

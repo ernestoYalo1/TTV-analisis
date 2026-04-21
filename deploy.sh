@@ -121,6 +121,9 @@ if [ -f .env ]; then
     set +a
 fi
 
+# Use Yalo account for BigQuery access (env var is process-scoped, more reliable than gcloud config)
+export CLOUDSDK_CORE_ACCOUNT=ernesto.espriella@yalo.com
+
 export PYTHONPATH=/opt/ttv_analysis
 exec /opt/scanning_agent/venv/bin/streamlit run app.py \
     --server.port=8506 \

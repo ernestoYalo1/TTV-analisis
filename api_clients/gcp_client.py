@@ -35,8 +35,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROJECT = "arched-photon-194421"
 DEFAULT_TIMEOUT = 300  # 5 minutes
 DEFAULT_MAX_ROWS = 100000
-DEFAULT_RETRY_COUNT = 3
-DEFAULT_RETRY_DELAY = 30  # seconds
+DEFAULT_RETRY_COUNT = 2
+DEFAULT_RETRY_DELAY = 5  # seconds
 
 
 class GCPClient:
