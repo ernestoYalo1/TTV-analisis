@@ -59,6 +59,11 @@ def _compute_status(row):
     Health overlays (take precedence): Stuck (too long at stage), Late (past
     Expected Go Live and not Implemented).
     """
+    # No WhatsApp flow linked → we can't measure contact milestones, so
+    # Stuck/Ramping/etc. would be misleading. Surface the real blocker.
+    if not row.get("bot_id"):
+        return "🔗 Flow not linked"
+
     today = date.today()
 
     close = row.get("close_date") or None
@@ -434,19 +439,16 @@ def render():
         selection_mode="single-row",
     )
 
-    # Selected-row card + Edit trigger
+    # Row click → auto-open the account details dialog.
+    # Gate with session state so the dialog doesn't reopen after the user
+    # closes it (selection persists across reruns in st.dataframe).
     if event.selection and event.selection.rows:
         idx = event.selection.rows[0]
-        row = ttv_rows[idx]
-        with st.container(border=True):
-            st.markdown(f"**{row['account_name']}**")
-            opp_name = row.get("opportunity_name") or "—"
-            bot_id = row.get("bot_id") or "Not mapped"
-            st.caption(f"Opportunity: {opp_name}  ·  Bot ID: `{bot_id}`")
-            if row.get("sf_url"):
-                st.caption(f"[Open in Salesforce]({row['sf_url']})")
-            if st.button("✏️ Edit Opportunity name & Bot ID", key="edit_selected_row", type="primary"):
-                _edit_account_dialog(row, ttv_rows)
+        if st.session_state.get("_edit_dialog_opened_for") != idx:
+            st.session_state["_edit_dialog_opened_for"] = idx
+            _edit_account_dialog(ttv_rows[idx], ttv_rows)
+    else:
+        st.session_state.pop("_edit_dialog_opened_for", None)
 
     # Stacked bar chart — projects per month by TTV speed tier
     st.subheader("Projects by Month — Speed to 50 Contacts")
