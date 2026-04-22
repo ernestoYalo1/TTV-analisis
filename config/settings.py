@@ -21,3 +21,7 @@ BQ_CONVERSATIONS_TABLE = "arched-photon-194421.DWH.fct_conversation"
 # TTV parameters
 NEW_CUSTOMER_CUTOFF = "2025-01-01"
 MILESTONES = [10, 50, 100]
+
+# Fast-track accounts — shown in the dedicated "⚡ Fast-Track" tab.
+# Matched case-insensitive against Salesforce account_name (substring).
+FASTTRACK_KEYWORDS = ["itesm", "petco", "creditas"]

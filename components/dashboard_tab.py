@@ -27,6 +27,15 @@ def _days_between_int(left, right):
         return None
 
 
+def _date_with_days_since_close(date_val, days_val):
+    """Format '2026-04-16 (15d)' — milestone date + days elapsed from close."""
+    if not date_val:
+        return "-"
+    if days_val is None:
+        return str(date_val)
+    return f"{date_val} ({days_val}d)"
+
+
 # "Stuck" thresholds — days at a stage before we flag it.
 # Tunable: today's averages are ~63d to 10 contacts, ~71d to 50.
 STUCK_DAYS = {
@@ -235,8 +244,17 @@ def _edit_account_dialog(row, ttv_rows):
             st.rerun()
 
 
-def render():
-    st.header("Time-to-Value Dashboard")
+def render(filter_keywords=None, title="Time-to-Value Dashboard",
+           table_key="dashboard_table", show_chart=True):
+    """Render the TTV table, metrics, and chart.
+
+    filter_keywords: optional list of case-insensitive substrings; only
+        accounts whose name contains any keyword are shown. Used by the
+        Fast-Track tab.
+    table_key: unique key for the dataframe widget & dialog session state,
+        so multiple tabs can host their own selection.
+    """
+    st.header(title)
 
     # Auto-load from Supabase on first visit (fast)
     if "ttv_rows" not in st.session_state and sb.is_available():
@@ -244,30 +262,50 @@ def render():
         if cached:
             st.session_state.ttv_rows = cached
 
-    col_compute, col_cache = st.columns(2)
-    with col_compute:
-        if st.button("Compute TTV (live from BigQuery)", type="primary"):
-            with st.spinner("Querying BigQuery for milestones... This may take a minute."):
-                ttv_rows = compute_ttv_table()
-                st.session_state.ttv_rows = ttv_rows
-                if ttv_rows:
-                    st.success(f"Computed milestones for {len(ttv_rows)} accounts")
+    # Fetch controls only appear in the main (unfiltered) view — filtered
+    # tabs like Fast Track just read from the shared session_state.
+    if not filter_keywords:
+        col_compute, col_cache = st.columns(2)
+        with col_compute:
+            if st.button(
+                "Compute TTV (live from BigQuery)",
+                type="primary",
+                key=f"{table_key}_compute_btn",
+            ):
+                with st.spinner("Querying BigQuery for milestones... This may take a minute."):
+                    ttv_rows = compute_ttv_table()
+                    st.session_state.ttv_rows = ttv_rows
+                    if ttv_rows:
+                        st.success(f"Computed milestones for {len(ttv_rows)} accounts")
 
-    with col_cache:
-        if sb.is_available():
-            if st.button("Reload from cache"):
-                cached = load_cached_ttv_table()
-                if cached:
-                    st.session_state.ttv_rows = cached
-                    st.success(f"Loaded {len(cached)} accounts")
-                else:
-                    st.warning("No cached data. Click 'Compute TTV' first.")
+        with col_cache:
+            if sb.is_available():
+                if st.button("Reload from cache", key=f"{table_key}_reload_btn"):
+                    cached = load_cached_ttv_table()
+                    if cached:
+                        st.session_state.ttv_rows = cached
+                        st.success(f"Loaded {len(cached)} accounts")
+                    else:
+                        st.warning("No cached data. Click 'Compute TTV' first.")
 
     ttv_rows = st.session_state.get("ttv_rows", [])
 
     if not ttv_rows:
         st.info("No TTV data yet. Click **Compute TTV** to pull data, or wait for the daily ingestion cron.")
         return
+
+    if filter_keywords:
+        kws = [k.lower() for k in filter_keywords]
+        ttv_rows = [
+            r for r in ttv_rows
+            if any(k in (r.get("account_name") or "").lower() for k in kws)
+        ]
+        if not ttv_rows:
+            st.warning(
+                "No accounts matched the fast-track keywords: "
+                + ", ".join(filter_keywords)
+            )
+            return
 
     # Merge business_type from session (live from Salesforce)
     bt_map = st.session_state.get("business_types", {})
@@ -344,9 +382,9 @@ def render():
             "PM Kick-off": pm or "-",
             "Expected Go Live (SOW)": row.get("expected_go_live_sow") or "-",
             "Expected Go Live (PM)": row.get("expected_go_live_pm") or "-",
-            "10 Contacts Reached": d10 or "-",
-            "50 Contacts Reached": d50 or "-",
-            "100 Contacts Reached": d100 or "-",
+            "10 Contacts Reached": _date_with_days_since_close(d10, row.get("days_to_10")),
+            "50 Contacts Reached": _date_with_days_since_close(d50, row.get("days_to_50")),
+            "100 Contacts Reached": _date_with_days_since_close(d100, row.get("days_to_100")),
 
             # Days between consecutive milestones
             "Tech Assist Duration (days)": _days_between(ta_start, ta_end),
@@ -391,11 +429,11 @@ def render():
         "PM Kick-off": st.column_config.TextColumn(
             "PM Kick-off", help="Salesforce: Project__c.Internal_Kick_Off_Started_Date__c"),
         "10 Contacts Reached": st.column_config.TextColumn(
-            "10 Contacts Reached", help="BigQuery: date when bot first hit 10 unique contacts"),
+            "10 Contacts Reached", help="BigQuery: date when bot first hit 10 unique contacts. (Nd) = days from Deal Close."),
         "50 Contacts Reached": st.column_config.TextColumn(
-            "50 Contacts Reached", help="BigQuery: date when bot first hit 50 unique contacts (Implemented threshold)"),
+            "50 Contacts Reached", help="BigQuery: date when bot first hit 50 unique contacts (Implemented threshold). (Nd) = days from Deal Close."),
         "100 Contacts Reached": st.column_config.TextColumn(
-            "100 Contacts Reached", help="BigQuery: date when bot first hit 100 unique contacts"),
+            "100 Contacts Reached", help="BigQuery: date when bot first hit 100 unique contacts. (Nd) = days from Deal Close."),
         "Expected Go Live (PM)": st.column_config.TextColumn(
             "Expected Go Live (PM)", help="Salesforce: Project__c.Expected_Go_Live_informed_by_PM__c"),
         "Expected Go Live (SOW)": st.column_config.TextColumn(
@@ -437,18 +475,23 @@ def render():
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
+        key=table_key,
     )
 
     # Row click → auto-open the account details dialog.
     # Gate with session state so the dialog doesn't reopen after the user
     # closes it (selection persists across reruns in st.dataframe).
+    dlg_state_key = f"_edit_dialog_opened_for__{table_key}"
     if event.selection and event.selection.rows:
         idx = event.selection.rows[0]
-        if st.session_state.get("_edit_dialog_opened_for") != idx:
-            st.session_state["_edit_dialog_opened_for"] = idx
+        if st.session_state.get(dlg_state_key) != idx:
+            st.session_state[dlg_state_key] = idx
             _edit_account_dialog(ttv_rows[idx], ttv_rows)
     else:
-        st.session_state.pop("_edit_dialog_opened_for", None)
+        st.session_state.pop(dlg_state_key, None)
+
+    if not show_chart:
+        return
 
     # Stacked bar chart — projects per month by TTV speed tier
     st.subheader("Projects by Month — Speed to 50 Contacts")
